@@ -1,0 +1,629 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#07090f">
+<title>Keystone Live</title>
+<!-- our own icon (tools/make_web_icons.py): tab, phone home screen, installed app -->
+<link rel="icon" href="favicon.ico" sizes="16x16 32x32 48x48">
+<link rel="icon" type="image/png" sizes="32x32" href="icon-32.png">
+<link rel="apple-touch-icon" sizes="180x180" href="icon-180.png">
+<link rel="manifest" href="site.webmanifest">
+<meta name="apple-mobile-web-app-title" content="Keystone Live">
+<style>
+  :root { --bg:#07090f; --card:#0f1626; --card2:#141b2b; --edge:#24304a; --text:#e6edf8; --dim:#8a97b1;
+    --label:#8cc7ff; --ice:#cdeeff; --gold:#ffd640; --orange:#ff8f1a; --good:#4fb848; --gutter:16px; }
+  * { box-sizing:border-box; }
+  html, body { margin:0; background:var(--bg); color:var(--text);
+    font:15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; -webkit-text-size-adjust:100%; }
+  body { padding:12px var(--gutter) 40px; overflow-x:hidden; }
+  .wrap { max-width:1920px; margin:0 auto; }
+  header { display:flex; flex-wrap:wrap; align-items:baseline; justify-content:space-between; gap:4px 14px; margin:0 2px 10px; }
+  h1 { margin:0; font-size:20px; letter-spacing:.14em; font-weight:800; }
+  h1 span { color:var(--gold); }
+  .updated { color:var(--dim); font-size:13px; }
+  .updated.old { color:#ffb347; font-weight:700; animation:pulse 2s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity:.55; } }
+
+  /* the live scene: always the 1920x515 strip, as wide as the page */
+  .scene { position:relative; width:var(--w); height:var(--h); margin:0 auto; border:1px solid var(--edge);
+    border-radius:10px; padding:5px; background:#11151f; box-sizing:content-box; box-shadow:0 8px 30px #0008; }
+  .scene canvas { position:absolute; left:5px; top:5px; width:var(--w) !important; height:var(--h) !important;
+    border-radius:6px; background:#000; display:block; }
+  #spinner { position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+    color:var(--dim); font-size:13px; letter-spacing:.1em; pointer-events:none; }
+  #spinner.pending::after, #spinner.loading::after { content:"LOADING THE MOUNTAIN…"; }
+  #spinner.error::after { content:"COULDN'T START THE SCENE: TRY A NEWER BROWSER"; color:#f88; }
+  #spinner:not(.pending):not(.loading):not(.error) { display:none; }
+
+  .tabs { display:flex; gap:6px; margin:12px auto 12px; padding:4px; background:var(--card); border:1px solid var(--edge);
+    border-radius:12px; position:sticky; top:0; z-index:5; max-width:760px; }
+  .tabs button { flex:1; min-width:0; padding:10px 6px; border:0; border-radius:9px; background:none; color:var(--dim);
+    font:700 14px/1.1 system-ui, sans-serif; letter-spacing:.04em; cursor:pointer; white-space:nowrap; }
+  .tabs button[aria-selected="true"] { background:linear-gradient(#ff9a2e, #e46f00); color:#14100a; }
+  .tabs button:focus-visible { outline:2px solid var(--gold); outline-offset:2px; }
+
+  /* portrait phones: scene strip + tabs stay on top, details scroll below */
+  @media (orientation:portrait) and (max-width:820px) {
+    body { padding-top:0; }
+    header { padding-top:10px; }
+    .top { position:sticky; top:0; z-index:5; background:var(--bg); padding:6px 0 0; margin:0 calc(-1 * var(--gutter)); }
+    .top .scene { border-radius:8px; }
+    .top .tabs { position:static; margin:8px var(--gutter) 8px; }
+    .tabs button { font-size:13px; padding:9px 2px; }
+  }
+
+  #details { display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 340px), 1fr)); gap:12px; }
+  .card { background:var(--card); border:1px solid var(--edge); border-radius:12px; padding:14px 16px; min-width:0; }
+  .card.resort { background:var(--card2); border-color:#5a4a1a; }
+  .card.wide { grid-column:1 / -1; }
+  .card h2 { margin:0 0 2px; font-size:15px; letter-spacing:.06em; font-weight:800; }
+  .src { color:var(--dim); font-size:12px; margin-bottom:10px; }
+  .hero { display:flex; align-items:baseline; gap:14px; flex-wrap:wrap; margin:4px 0 8px; }
+  .big { font-size:42px; font-weight:800; line-height:1; }
+  .sub { color:var(--ice); font-weight:600; }
+  dl { margin:0; display:grid; grid-template-columns:auto 1fr; gap:6px 14px; }
+  dt { color:var(--label); font-size:12px; letter-spacing:.04em; padding-top:2px; }
+  dd { margin:0; font-weight:700; }
+  .peakhead h2 { font-size:22px; }
+  .peakhead .el { color:var(--gold); font-weight:800; margin-left:6px; }
+  .note { color:var(--ice); font-size:13px; }
+  .note.same { color:var(--gold); }
+  .scroll { overflow-x:auto; -webkit-overflow-scrolling:touch; }
+  table { border-collapse:collapse; width:100%; font-variant-numeric:tabular-nums; }
+  th, td { padding:5px 6px; text-align:center; white-space:nowrap; }
+  th { color:var(--label); font-size:12px; font-weight:700; }
+  td:first-child, th:first-child { text-align:left; }
+  tr:nth-child(even) td { background:#ffffff08; }
+  .hot { color:var(--orange); font-weight:800; }
+  .head { color:var(--gold); }
+  .cell { display:inline-block; min-width:34px; padding:1px 5px; border-radius:5px; }
+  .foot { color:var(--dim); font-size:12px; margin-top:8px; }
+  .chart { display:flex; align-items:flex-end; height:90px; gap:1px; background:#ffffff0d; border-radius:6px; padding:4px; position:relative; }
+  .chart i { flex:1; background:var(--ice); min-height:0; border-radius:1px; }
+  .chart i.day { box-shadow:-1px 0 0 #ffffff55; }
+  .chart i.hot { background:var(--orange); }
+  .chart .empty { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:var(--dim); font-size:13px; }
+  .axis { display:flex; justify-content:space-between; color:var(--dim); font-size:11px; margin-top:3px; }
+  .bar { height:10px; border-radius:5px; background:#ffffff1f; position:relative; margin:8px 0; }
+  .bar b { position:absolute; left:0; top:0; bottom:0; border-radius:5px; }
+  .bar .tick { position:absolute; top:-4px; bottom:-4px; width:2px; background:#fff; }
+  .chip { display:inline-block; padding:3px 9px; border-radius:6px; font-weight:800; font-size:13px; }
+  .facts { display:flex; flex-wrap:wrap; gap:8px; }
+  .facts span { background:#0b1a3d; border-radius:6px; padding:5px 10px; font-size:13px; font-weight:600; }
+  .alert { border-radius:7px; padding:7px 10px; font-weight:800; margin-bottom:6px; }
+  .afd p { margin:4px 0; }
+  .station { padding:8px 0; border-top:1px solid #ffffff14; }
+  .station:first-of-type { border-top:0; }
+  .station b { color:var(--gold); }
+  a { color:var(--gold); }
+  .btn { display:inline-block; margin-top:6px; padding:9px 14px; border-radius:8px; background:var(--gold); color:#111; font-weight:800; text-decoration:none; }
+  .rotate { display:none; text-align:center; color:var(--dim); font-size:12px; margin-top:4px; }
+  @media (orientation:portrait) and (max-width:820px) { .rotate { display:block; } }
+  #fps { position:fixed; right:8px; bottom:6px; color:var(--dim); font:12px monospace; }
+  /* "A YEAR AT ...": the scene plays a year; the details below stay live */
+  .tourbar { display:flex; flex-wrap:wrap; align-items:center; justify-content:center; gap:6px 14px; margin:10px auto 0; max-width:760px; }
+  #tourBtn { padding:9px 18px; border:1px solid #5a4a1a; border-radius:9px; background:var(--card2); color:var(--gold);
+    font:800 14px/1.1 system-ui, sans-serif; letter-spacing:.08em; cursor:pointer; }
+  #tourBtn.on { background:#fff; color:#111; border-color:#fff; }
+  #tourBtn:focus-visible { outline:2px solid var(--gold); outline-offset:2px; }
+  #tourNote { color:var(--ice); font-size:13px; text-align:center; }
+  #tourNote b { color:var(--orange); }
+  .scene.touring canvas { cursor:pointer; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1><span>⛰</span> KEYSTONE</h1>
+    <div class="updated" id="updated"></div>
+  </header>
+  <div class="top">
+    <div class="scene">
+      <canvas id="canvas"></canvas>
+      <div id="spinner" class="pending"></div>
+    </div>
+    <div class="rotate">Turn your phone sideways for a bigger scene</div>
+    <div class="tourbar">
+      <button id="tourBtn" type="button">▶ A YEAR AT KEYSTONE</button>
+      <span id="tourNote" hidden>The scene above is a time-lapse of a typical year, <b>not live</b>. Tap it to go back. Everything below is live.</span>
+    </div>
+    <nav class="tabs" role="tablist" id="tabs"></nav>
+  </div>
+  <main id="details" aria-live="polite"></main>
+</div>
+<div id="fps" hidden></div>
+<script>
+(function () {
+  "use strict";
+  var BUILD = "4c83c959bb", LOVE = "mountain-4c83c959bb.love";
+  var DATA_URL = "data/ski.txt", REFRESH_MS = 30 * 60 * 1000, FIRST_WAIT_MS = 6000, STALE_S = 2 * 3600;
+  var TABS = [["dercum", "Dercum"], ["north", "North Peak"], ["outback", "Outback"], ["resort", "Resort-wide"]];
+  var TZ = "America/Denver";
+
+  // ---------- layout: the scene is the 1920x515 strip, full width ----------
+  function fit() {
+    var de = document.documentElement;   // not innerWidth: on phones it can include overflow
+    var portrait = de.clientHeight > de.clientWidth && de.clientWidth <= 820;
+    var gutter = portrait ? 0 : 16;
+    var w = Math.max(200, Math.min(1920, de.clientWidth - 2 * gutter - 12));
+    var root = de.style;
+    root.setProperty("--w", Math.floor(w) + "px");
+    root.setProperty("--h", Math.round(w * 515 / 1920) + "px");
+  }
+  window.addEventListener("resize", fit);
+  window.addEventListener("load", fit);
+  if (window.visualViewport) visualViewport.addEventListener("resize", fit);
+  fit();
+
+  // ---------- state ----------
+  var D = {}, S = {}, raw = "", info = null, fields = [];
+  var tab = "north";
+  try { var saved = localStorage.getItem("mirrorTab"); if (TABS.some(function (t) { return t[0] === saved; })) tab = saved; } catch (e) {}
+  window.mirrorTab = tab;
+
+  function parse(txt) {
+    var out = {};
+    txt.split("\n").forEach(function (line) {
+      var i = line.indexOf("=");
+      if (i < 1) return;
+      var k = line.slice(0, i), v = line.slice(i + 1);
+      out[k] = (v !== "" && !isNaN(v) && /^-?[\d.]+$/.test(v)) ? Number(v) : v;
+    });
+    return out;
+  }
+  function val(k) { return D[k] === "" ? undefined : D[k]; }
+  function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]; }); }
+
+  // ---------- formats: the SAME names and output as FORMAT in mountain_details.lua ----------
+  function snowIn(v) {
+    if (v == null) return "--";
+    if (v < 0.05) return '0"';
+    return v >= 9.95 ? Math.round(v) + '"' : v.toFixed(1) + '"';
+  }
+  function inches(v, dec) { if (v == null) return "--"; return (dec === false || v >= 9.95) ? Math.round(v) + '"' : v.toFixed(1) + '"'; }
+  function commas(n) { return Math.round(n).toLocaleString("en-US"); }
+  var COMPASS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+  function compass(d) { return COMPASS[Math.floor(((d || 0) + 22.5) / 45) % 8]; }
+  var FORMAT = {
+    temp: function (v) { return v[0] != null ? Math.round(v[0]) + "°F" : "--"; },
+    deg: function (v) { return v[0] != null ? Math.round(v[0]) + "°" : "--"; },
+    snow: function (v) { return snowIn(v[0]); },
+    snow3: function (v) { return snowIn(v[0]) + "  /  " + snowIn(v[1]) + "  /  " + snowIn(v[2]); },
+    wind: function (v) {
+      if (v[0] == null) return "--";
+      return compass(v[2]) + " " + Math.round(v[0]) + " MPH" + (v[1] != null ? " · GUSTS " + Math.round(v[1]) : "");
+    },
+    freezeVsSummit: function (v, pk) {
+      if (v[0] == null || !pk.elevation) return "--";
+      var d = v[0] - pk.elevation;
+      return commas(v[0]) + " FT · " + commas(Math.abs(d)) + (d >= 0 ? " ABOVE" : " BELOW");
+    },
+    miles: function (v) { return v[0] != null ? (v[0] >= 10 ? Math.floor(v[0]) : v[0].toFixed(1)) + " MI" : "--"; },
+    feet: function (v) { return v[0] != null ? commas(v[0]) + " FT" : "--"; },
+    pct: function (v) { return v[0] != null ? Math.round(v[0]) + "%" : "--"; },
+    text: function (v) { return v[0] != null ? String(v[0]) : "--"; },
+    // Keystone's report as the headline (status.txt; mountain.lua reportedSnow), the model if stale.
+    // A format may return [text, label]; null leaves the row out.
+    reported: function (v) {
+      var r = reportedSnow();
+      if (r) return [snowIn(r.n24) + "  /  " + snowIn(r.n48) + "  /  " + snowIn(r.n7d) + "   (24H / 48H / 7D)", "NEW SNOW · KEYSTONE REPORTED"];
+      return [FORMAT.snow3(v) + "   (24H / 48H / 72H)", "NEW SNOW · MODEL (REPORT OUT OF DATE)"];
+    },
+    modelUnder: function (v) { return reportedSnow() ? FORMAT.snow3(v) + "   (24H / 48H / 72H)" : null; }
+  };
+  var REPORT_MAX_AGE = 30 * 3600;      // same as mountain.lua / cover_update.py
+  function reportedSnow() {
+    var t = Number(sv("rep_updated"));
+    if (!t || Date.now() / 1000 - t > REPORT_MAX_AGE) return null;
+    var ov = sv("rep_overnight"), d1 = sv("rep_24h");
+    if (ov == null && d1 == null) return null;
+    var num = function (k) { var x = sv(k); return x == null ? null : Number(x); };
+    return { n24: Math.max(Number(ov) || 0, Number(d1) || 0), n48: num("rep_48h"), n7d: num("rep_7day") };
+  }
+  function rowValues(row, pkKey) {
+    var fk = (info && info.forecast) || pkKey;
+    return (row.keys || []).map(function (k) { return val(k.replace("{peak}", pkKey).replace("{forecast}", fk)); });
+  }
+
+  // ---------- time (always Denver) ----------
+  function ago(t) {
+    if (!t) return "never";
+    var m = Math.floor((Date.now() / 1000 - t) / 60);
+    if (m < 1) return "just now";
+    if (m < 60) return m + " min ago";
+    if (m < 2880) return Math.floor(m / 60) + " h " + (m % 60) + " min ago";
+    return Math.floor(m / 1440) + " days ago";
+  }
+  function utc(iso) {   // "YYYY-MM-DDTHH:MM" in UTC (also "YYYYMMDDTHHMM")
+    var m = String(iso || "").match(/(\d{4})-?(\d\d)-?(\d\d)T(\d\d):?(\d\d)/);
+    return m ? Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]) : null;
+  }
+  function clock(ms) {
+    if (!ms) return "--";
+    var f = function (o) { return new Intl.DateTimeFormat("en-US", Object.assign({ timeZone: TZ }, o)).format(new Date(ms)); };
+    var s = f({ hour: "numeric", minute: "2-digit" });
+    var dayOf = function (d) { return new Intl.DateTimeFormat("en-US", { timeZone: TZ, dateStyle: "short" }).format(d); };
+    return dayOf(new Date()) === dayOf(new Date(ms)) ? s : f({ weekday: "short" }).toUpperCase() + " " + s;
+  }
+  function day(v) {     // 20261120 -> "FRI"
+    var s = String(v || ""); if (s.length < 8) return "--";
+    return ["SUN","MON","TUE","WED","THU","FRI","SAT"][new Date(Date.UTC(+s.slice(0,4), +s.slice(4,6) - 1, +s.slice(6,8), 12)).getUTCDay()];
+  }
+  function ymd(v) {
+    var s = String(v || ""); if (s.length < 8) return "--";
+    return ["JAN","FEB","MAR","APR","MAY","JUN","JUL","AUG","SEP","OCT","NOV","DEC"][+s.slice(4,6) - 1] + " " + +s.slice(6,8);
+  }
+
+  function condition(code) {
+    if (code == null) return "NO DATA";
+    if (code <= 1) return "CLEAR"; if (code === 2) return "PARTLY CLOUDY"; if (code === 3) return "OVERCAST";
+    if (code === 45 || code === 48) return "FOG"; if (code >= 51 && code <= 57) return "DRIZZLE";
+    if (code >= 61 && code <= 67) return "RAIN"; if (code >= 71 && code <= 77) return "SNOW";
+    if (code >= 80 && code <= 82) return "SHOWERS"; if (code === 85 || code === 86) return "SNOW SHOWERS";
+    if (code >= 95) return "T-STORMS"; return "--";
+  }
+  function pctColor(p) {
+    if (p == null) return "var(--dim)";
+    if (p < 70) return "#ff7a45"; if (p < 90) return "#ffc070"; if (p <= 110) return "#ffffff"; if (p <= 130) return "#8cc7ff";
+    return "var(--gold)";
+  }
+  var AVY = [["NO RATING", "#73808f", "#fff"], ["LOW", "#4fb848", "#05091f"], ["MODERATE", "#fff200", "#05091f"],
+             ["CONSIDERABLE", "#f7941e", "#05091f"], ["HIGH", "#ed1c24", "#fff"], ["EXTREME", "#141214", "#fff"]];
+  function avyChip(n, label) {
+    var a = AVY[Math.max(0, Math.min(5, Math.floor(n || 0)))];
+    return '<span class="chip" style="background:' + a[1] + ';color:' + a[2] + '">' + esc(label != null ? label : (Math.floor(n || 0) + " " + a[0])) + "</span>";
+  }
+
+  // source label for a section, like the Pi's tiles ("OPEN-METEO · 12 min ago")
+  var SRC = { core: "OPEN-METEO", models: "OPEN-METEO", season: "OPEN-METEO ARCHIVE", snotel: "NRCS SNOTEL", nws: "NWS", avy: "CAIC" };
+  function srcLine(name) {
+    var label = SRC[name] || name.toUpperCase();
+    if (String(val("src_backup") || "").split(",").indexOf(name) >= 0) label += " BACKUP";
+    if (name === "nws") label = "NWS " + (val("nws_office") || "");
+    return label + " · " + ago(val("src_" + name + "_updated"));
+  }
+  // the resort's own daily report (data/status.txt, processed on the Pi): each section has its own "as of"
+  var SEC = { snowreport: "sec_snow", terrain: "sec_trails", lifts: "sec_lifts", roads: "sec_roads" };
+  function sv(k) { return S[k] === "" ? undefined : S[k]; }
+  function statusSrc(s) {
+    var t = sv(SEC[s.widget]) || sv("status_as_of");
+    var who = s.widget === "roads" ? "COTRIP (CDOT)" : "KEYSTONE OFFICIAL";
+    return who + (t ? " · AS OF " + clock(t * 1000) : "");
+  }
+  function card(s, body, cls) {
+    return '<section class="card ' + (cls || "") + (s.scope === "resort" ? " resort" : "") + '"><h2>' + esc(s.title) + '</h2>' +
+           '<div class="src">' + esc(s.source === "status" ? statusSrc(s) : srcLine(s.source)) + "</div>" + body + "</section>";
+  }
+  function rows(s, pk) {
+    if (!s.rows) return "";
+    return "<dl>" + s.rows.map(function (r) {
+      var f = FORMAT[r.format] || FORMAT.text;
+      var out = f(rowValues(r, pk.key), pk);
+      if (out == null) return "";
+      var label = r.label;
+      if (Array.isArray(out)) { label = out[1] || label; out = out[0]; }
+      return "<dt>" + esc(label) + "</dt><dd>" + esc(out) + "</dd>";
+    }).join("") + "</dl>";
+  }
+  function list(v) { return String(v == null ? "" : v).split(",").map(function (x) { return x === "" ? null : Number(x); }); }
+
+  // ---------- widgets (the same set the Pi draws) ----------
+  var W = {};
+  W.summit = function (pk) {
+    var k = pk.key;
+    return '<div class="hero"><span class="big">' + FORMAT.temp([val(k + "_temp")]) + '</span><span class="sub">FEELS ' +
+           FORMAT.deg([val(k + "_feels")]) + "</span><span>" + condition(val(k + "_code")) + "</span></div>";
+  };
+  W.hourly48 = function (pk) {
+    var snow = list(val(pk.key + "_h48_snow")), total = 0, max = 0.5;
+    snow.forEach(function (v) { total += v || 0; max = Math.max(max, v || 0); });
+    var h0 = Number(String(val(pk.key + "_h48_start") || "").slice(8, 10)) || 0, bars = "";
+    for (var i = 0; i < 48; i++) {
+      var v = snow[i] || 0, hr = (h0 + i) % 24;
+      bars += '<i class="' + (hr === 0 ? "day " : "") + (v >= 1 ? "hot" : "") + '" style="height:' + (v > 0.004 ? Math.max(2, 100 * v / max) : 0) + '%"></i>';
+    }
+    var lab = function (i) { var hr = (h0 + i) % 24; return hr === 0 ? "MID" : hr === 12 ? "NOON" : (hr % 12 || 12) + (hr < 12 ? "A" : "P"); };
+    return '<div class="hero"><span class="big" style="' + (total >= 6 ? "color:var(--gold)" : "") + '">' + inches(total) +
+           '</span><span class="sub">TOTAL</span></div><div class="chart">' + bars +
+           (total < 0.05 ? '<div class="empty">NO SNOW IN THE FORECAST</div>' : "") + '</div><div class="axis"><span>' +
+           lab(0) + "</span><span>" + lab(12) + "</span><span>" + lab(24) + "</span><span>" + lab(36) + "</span><span>" + lab(47) + "</span></div>";
+  };
+  W.levels7 = function (pk) {
+    var k = pk.key, head = "<th>K FT</th>", snow = "<td>SNOW ≈</td>", frz = "<td>FREEZE</td>";
+    var kft = function (v) { return v != null ? (v / 1000).toFixed(1) : "--"; };
+    for (var d = 0; d < 7; d++) {
+      head += "<th>" + (d === 0 ? "TDY" : day(val(k + "_d" + d + "_date"))) + "</th>";
+      snow += "<td>" + kft(val(k + "_d" + d + "_snow_level")) + "</td>";
+      var fl = val(k + "_d" + d + "_fl_max");
+      frz += '<td class="' + (fl != null && fl > pk.elevation ? "hot" : "") + '">' + kft(fl) + "</td>";
+    }
+    return '<div class="scroll"><table><tr>' + head + "</tr><tr>" + snow + "</tr><tr>" + frz + "</tr></table></div>" +
+           '<div class="foot"><span class="hot">ORANGE</span> = ABOVE THE SUMMIT (' + commas(pk.elevation) + ' FT) · SNOW LEVEL ≈ FREEZING LEVEL − 1,000 FT (ESTIMATE)</div>';
+  };
+  W.models7 = function (pk) {
+    var k = pk.key, keys = String(val("models") || "").split(",").filter(Boolean), labels = String(val("models_labels") || "").split(",");
+    var head = "<th></th>", body = "", notes = [], sharedWith = {};
+    for (var d = 0; d < 7; d++) head += "<th>" + (d === 0 ? "TDY" : day(val(k + "_d" + d + "_date"))) + "</th>";
+    head += "<th>TOTAL</th>";
+    keys.forEach(function (m, i) {
+      var v = list(val(k + "_model_" + m)), t = 0, have = 0, shared = false, mine = val(k + "_model_" + m + "_cell");
+      (info ? info.peaks : []).forEach(function (o) { if (o.key !== k && mine && val(o.key + "_model_" + m + "_cell") === mine) { shared = true; sharedWith[o.label] = 1; } });
+      var isHead = m === val("snow_headline"), cells = "";
+      for (var d = 0; d < 7; d++) {
+        var s = v[d];
+        if (s != null) { t += s; have++; }
+        cells += "<td>" + (s == null ? "" : s >= 0.05 ? '<span class="cell" style="background:' +
+          (s >= 6 ? "rgba(255,143,26,.85)" : "rgba(89,166,255," + (0.25 + 0.6 * Math.min(1, Math.max(0.15, s / 6))) + ")") + '">' +
+          (s >= 9.95 ? Math.round(s) : s.toFixed(1)) + "</span>" : "·") + "</td>";
+      }
+      if (have > 0 && have < 7 && !notes.some(function (n) { return n.charAt(0) === "*"; })) notes.push("* " + (labels[i] || m.toUpperCase()) + ": " + have + " DAYS ONLY");
+      body += '<tr><td class="' + (isHead ? "head" : "") + '">' + esc(labels[i] || m.toUpperCase()) + (isHead ? " ▸" : "") + (shared ? ' <span class="head">≡</span>' : "") +
+              "</td>" + cells + '<td class="' + (t >= 6 ? "head" : "") + '"><b>' + (have ? inches(t) + (have < 7 ? "*" : "") : "--") + "</b></td></tr>";
+    });
+    if (val("snow_headline") && val("snow_headline") !== "blend") notes.unshift("▸ HEADLINE");
+    var names = Object.keys(sharedWith).sort();
+    if (names.length) notes.push("≡ SAME CELL AS " + names.join(" / "));
+    return '<div class="scroll"><table><tr>' + head + "</tr>" + body + '</table></div><div class="foot">' + esc(notes.join("   ")) + "</div>";
+  };
+  W.snowpack = function () {
+    var n = val("snotel_count") || 0, out = '<div class="note">Automated stations a few miles away: NEARBY, NOT ON THE PEAKS.</div>';
+    for (var i = 1; i <= n; i++) {
+      var p = "snotel" + i, sp = (info && info.snowpack[i - 1]) || {};
+      var dists = (info ? info.peaks : []).map(function (pk) { var d = val(p + "_dist_" + pk.key); return d != null ? pk.label + " " + d.toFixed(1) + " MI" : null; }).filter(Boolean).join(" · ");
+      var head = sp.early ? '<b style="color:var(--ice)">' + esc(sp.word) + "</b> " + esc(sp.long || "")
+                          : '<b style="color:' + pctColor(sp.pct) + '">' + (sp.pct != null && sp.pct !== false ? sp.pct + "%" : "--") + "</b> OF MEDIAN SWE · " + esc(sp.long || "");
+      out += '<div class="station"><b>' + esc(String(val(p + "_name") || "?").toUpperCase()) + "</b> · " +
+             (val(p + "_elevation") ? commas(val(p + "_elevation")) + " FT" : "--") + '<div class="note">' + esc(dists) + "</div><div>" + head +
+             "</div><div>DEPTH " + inches(val(p + "_depth"), false) + " (24H " + signed(val(p + "_depth_24h")) + ", 7D " + signed(val(p + "_depth_7d")) +
+             ") · SWE " + inches(val(p + "_swe")) + " (24H " + signed(val(p + "_swe_24h")) + ", 7D " + signed(val(p + "_swe_7d")) + ')</div></div>';
+    }
+    return out + '<div class="foot">END OF ' + ymd(val("snotel1_date")) + " (DAILY VALUES)</div>";
+  };
+  function signed(v) { if (v == null) return "--"; if (Math.abs(v) < 0.05) return '0"'; return (v > 0 ? "+" : "") + (Math.round(v * 10) / 10) + '"'; }
+  W.season = function () {
+    var f = (info && info.forecast) || "north", pct = val(f + "_season_pct"), pp = val("snotel1_prec_pct");
+    var fp = info ? info.peaks.filter(function (p) { return p.key === f; })[0] : null;
+    return '<div class="hero"><span class="big">' + inches(val(f + "_season_snow"), false) + '</span><span class="sub">SINCE ' + ymd(val("season_start")) +
+           " · NORMAL " + inches(val(f + "_season_normal"), false) + '</span><span class="big" style="font-size:30px;color:' + pctColor(pct) + '">' +
+           (pct != null ? pct + "%" : "--") + '</span></div><div class="bar"><b style="width:' + Math.min(100, (pct || 0) / 1.5) + "%;background:" + pctColor(pct) +
+           '"></b><i class="tick" style="left:66.7%"></i></div>' +
+           (pp != null ? '<div style="color:' + pctColor(pp) + '">SNOTEL PRECIP: ' + pp + "% OF MEDIAN</div>" : "") +
+           '<div class="foot">MODEL (REANALYSIS) AT ' + esc(fp ? fp.name.toUpperCase() : f.toUpperCase()) + " · NORMAL = AVERAGE OF THE LAST " + (val("season_normal_years") || 30) + " SEASONS</div>";
+  };
+  W.nws = function () {
+    var n = val("nws_alert_count") || 0, out = "";
+    if (!n) out += '<div class="alert" style="background:#2e8c4d">NO WATCHES, WARNINGS OR ADVISORIES</div>';
+    for (var i = 1; i <= n; i++) {
+      var ev = String(val("nws_alert" + i + "_event") || "").toUpperCase(), ends = utc(val("nws_alert" + i + "_ends"));
+      var col = /WARNING/.test(ev) ? "#d9263a" : /WATCH/.test(ev) ? "#f28c1a" : "#4073d9";
+      out += '<div class="alert" style="background:' + col + '">' + esc(ev) + (ends ? " UNTIL " + clock(ends) : "") + "</div>";
+    }
+    var body = String(val("nws_afd_excerpt") || "No discussion available.");
+    var parts = body.split("•").map(function (s) { return s.trim(); }).filter(Boolean);
+    out += '<div class="head" style="font-weight:700;margin-top:8px">DISCUSSION · ' + esc(val("nws_afd_section") || "DISCUSSION") + " · " + clock(utc(val("nws_afd_time"))) + '</div><div class="afd">' +
+           parts.map(function (p) { return "<p>• " + esc(p) + "</p>"; }).join("") + "</div>";
+    return out;
+  };
+  W.avalanche = function () {
+    var bands = [["upper", "ABOVE TREELINE"], ["middle", "NEAR TREELINE"], ["lower", "BELOW TREELINE"]];
+    var has = val("avy_bands") === 1, overall = val("avy_level") || 0, rowsH = "";
+    bands.forEach(function (b) {
+      var t = val("avy_tomorrow_" + b[0]);
+      rowsH += "<tr><td>" + b[1] + "</td><td>" + avyChip(has ? val("avy_" + b[0]) : overall) + "</td><td>" + (t != null ? avyChip(t, String(Math.floor(t))) : "") + "</td></tr>";
+    });
+    var np = val("avy_problem_count") || 0, probs = [];
+    for (var i = 1; i <= Math.min(3, np); i++) {
+      var lk = val("avy_problem" + i + "_likelihood");
+      probs.push(String(val("avy_problem" + i + "_name") || "").toUpperCase() + (lk ? " (" + String(lk).toUpperCase() + ")" : ""));
+    }
+    return '<div class="note">ISSUED ' + clock(utc(val("avy_published"))) + "</div><table><tr><th></th><th>TODAY</th><th>TMRW</th></tr>" + rowsH + "</table>" +
+           '<div style="margin-top:8px;font-weight:700;color:' + (np ? "var(--gold)" : "var(--ice)") + '">' +
+           (np ? "PROBLEMS: " + esc(probs.join(", ")) : has ? "NO AVALANCHE PROBLEMS LISTED" : "ELEVATION BANDS UNAVAILABLE") + "</div>" +
+           (val("avy_bottom_line") ? '<p class="note">' + esc(val("avy_bottom_line")) + "</p>" : "");
+  };
+
+  // ---------- the resort's daily report (status.txt) ----------
+  function noReport() { return '<div class="note">No daily report yet.</div>'; }
+  var LEVELS = [["green", "GREEN", "#4fb848"], ["blue", "BLUE", "#3b82f6"], ["black", "BLACK", "#e6edf8"],
+                ["double_black", "DOUBLE BLACK", "#e6edf8"], ["terrain_park", "TERRAIN PARK", "#ff8f1a"]];
+  W.snowreport = function () {
+    if (!sv("status_generated")) return noReport();
+    var n = function (k) { var v = sv(k); return v == null ? "--" : v + '"'; };
+    var dep = val("snotel1_depth");
+    return '<div class="hero"><span class="big">' + n("rep_base_depth") + '</span><span class="sub">BASE (KEYSTONE)</span>' +
+           '<span class="big" style="font-size:30px">' + inches(dep, false) + '</span><span class="sub">SNOTEL DEPTH (' +
+           esc(String(val("snotel1_name") || "NEARBY").toUpperCase()) + ")</span></div><dl>" +
+           "<dt>OVERNIGHT</dt><dd>" + n("rep_overnight") + "</dd><dt>24 H</dt><dd>" + n("rep_24h") + "</dd><dt>48 H</dt><dd>" + n("rep_48h") +
+           "</dd><dt>7 DAYS</dt><dd>" + n("rep_7day") + "</dd><dt>SEASON</dt><dd>" + n("rep_season_total") + "</dd><dt>SURFACE</dt><dd>" +
+           esc(String(sv("rep_surface") || "--").toUpperCase()) + "</dd></dl>" +
+           '<div class="foot">REPORTED ' + clock((sv("rep_updated") || 0) * 1000) + " · RESORT FIGURES INCLUDE MACHINE-MADE SNOW; SNOTEL IS NATURAL SNOW AT A STATION MILES AWAY</div>";
+  };
+  W.terrain = function () {
+    if (!sv("status_generated")) return noReport();
+    var h = "<tr><th></th><th>OPEN</th><th>GROOMED</th></tr>";
+    LEVELS.forEach(function (l) {
+      if (sv("diff_" + l[0] + "_total") == null) return;
+      h += '<tr><td><span style="color:' + l[2] + '">●</span> ' + l[1] + "</td><td>" + sv("diff_" + l[0] + "_open") + "/" + sv("diff_" + l[0] + "_total") +
+           "</td><td>" + (sv("diff_" + l[0] + "_groomed") || 0) + "</td></tr>";
+    });
+    var a = "<tr><th>AREA</th><th>LIFTS</th><th>TRAILS</th></tr>";
+    for (var i = 1; i <= (sv("area_count") || 0); i++)
+      a += "<tr><td>" + esc(String(sv("area" + i + "_name") || "").toUpperCase()) + "</td><td>" + sv("area" + i + "_lifts_open") + "/" + sv("area" + i + "_lifts_total") +
+           "</td><td>" + sv("area" + i + "_trails_open") + "/" + sv("area" + i + "_trails_total") + "</td></tr>";
+    var open = [];
+    for (var j = 1; j <= (sv("trail_count") || 0); j++) if (sv("trail" + j + "_status") === "open") open.push(sv("trail" + j + "_name"));
+    return '<div class="hero"><span class="big">' + (sv("sum_trails_open") != null ? sv("sum_trails_open") : "--") + '</span><span class="sub">OF ' +
+           (sv("sum_trails_total") || "--") + " RUNS OPEN" + (sv("sum_terrain_percent_open") != null ? " · " + sv("sum_terrain_percent_open") + "% OF TERRAIN" : "") +
+           '</span></div><div class="facts" style="margin-bottom:8px">' + open.map(function (t) { return "<span>" + esc(t) + "</span>"; }).join("") +
+           '</div><div class="scroll"><table>' + h + '</table></div><div class="scroll" style="margin-top:8px"><table>' + a + "</table></div>";
+  };
+  W.lifts = function () {
+    if (!sv("status_generated")) return noReport();
+    var COL = { open: "#2e8c4d", hold: "#f28c1a", scheduled: "#4073d9", closed: "#3a4458" }, rowsL = "", rank = { open: 0, hold: 1, scheduled: 2, closed: 3 };
+    var L = [];
+    for (var i = 1; i <= (sv("lift_count") || 0); i++) if (sv("lift" + i + "_type") !== "conveyor") L.push(i);
+    L.sort(function (a, b) { return (rank[sv("lift" + a + "_status")] || 3) - (rank[sv("lift" + b + "_status")] || 3); });
+    L.forEach(function (i) {
+      var st = sv("lift" + i + "_status") || "closed", w = sv("lift" + i + "_wait");
+      rowsL += '<tr><td><span class="chip" style="background:' + (COL[st] || COL.closed) + ';color:#fff;font-size:11px">' + esc(st.toUpperCase()) + "</span> " +
+               esc(String(sv("lift" + i + "_name") || "").toUpperCase()) + "</td><td>" + (st === "open" && w != null ? w + " MIN" : "") + "</td><td>" +
+               esc(sv("lift" + i + "_hours") || "") + "</td></tr>";
+    });
+    return '<div class="hero"><span class="big">' + (sv("sum_lifts_open") != null ? sv("sum_lifts_open") : "--") + '</span><span class="sub">OF ' +
+           (sv("sum_lifts_total") || "--") + " LIFTS OPEN" + (sv("sum_max_wait_minutes") != null ? " · MAX WAIT " + sv("sum_max_wait_minutes") + " MIN" : "") +
+           '</span></div><div class="scroll"><table><tr><th>LIFT</th><th>WAIT</th><th>HOURS</th></tr>' + rowsL + "</table></div>";
+  };
+  W.roads = function () {
+    if (!sv("status_generated")) return noReport();
+    var out = "";
+    for (var i = 1; i <= (sv("roads_line_count") || 0); i++) out += "<p>" + esc(sv("roads_line" + i) || "") + "</p>";
+    var c = function (k) { return sv("roads_" + k + "_count") || 0; };
+    return '<div class="facts" style="margin-bottom:6px"><span>CHAIN / TRACTION LAWS: ' + c("chain_laws") + "</span><span>CLOSURES: " + c("closures") +
+           "</span><span>INCIDENTS: " + c("incidents") + '</span></div><div class="afd">' + out + "</div>" +
+           '<div class="foot">TRAVEL TIMES: CDOT DOESN\'T PUBLISH THEM AS TEXT. <a href="https://www.cotrip.org" target="_blank" rel="noopener">COtrip ↗</a></div>';
+  };
+  function linksCard() {
+    if (!sv("status_generated")) return "";
+    var cams = [], seen = {};
+    for (var i = 1; i <= (sv("cam_count") || 0); i++) {
+      var u = sv("cam" + i + "_page"); if (!/^https:\/\//.test(u || "")) continue;
+      cams.push('<a class="btn" href="' + esc(u) + '" target="_blank" rel="noopener">' + esc(sv("cam" + i + "_name") || "Webcam") + " ↗</a>");
+    }
+    var os = /^https:\/\//.test(sv("os_url") || "") ? '<a class="btn" href="' + esc(sv("os_url")) + '" target="_blank" rel="noopener">OpenSnow: ' +
+             esc(sv("os_feed") || "Daily Snow") + " (" + clock((sv("os_published") || 0) * 1000) + ") ↗</a>" : "";
+    var radar = /^https:\/\//.test(sv("radar_url") || "") ? '<a class="btn" href="' + esc(sv("radar_url")) + '" target="_blank" rel="noopener">NWS radar loop ↗</a>' : "";
+    if (!cams.length && !os && !radar) return "";
+    return '<section class="card wide resort"><h2>LIVE: WEBCAMS, FORECAST POST, RADAR</h2><div class="src">LINKS TO THE ORIGINAL PAGES (NOT COPIED HERE)</div>' +
+           '<div class="facts">' + cams.join(" ") + " " + os + " " + radar + "</div></section>";
+  }
+  function keptNote() {
+    if (!(sv("status_kept_previous") > 0)) return "";
+    return '<section class="card wide resort"><div class="note" style="color:var(--gold);font-weight:700">KEYSTONE DIDN\'T UPDATE THIS RUN: SHOWING EARLIER ' +
+           esc(String(sv("status_kept_sections") || "DATA").toUpperCase()) + "</div></section>";
+  }
+
+  // ---------- render ----------
+  function peakHeader(pk) {
+    var k = pk.key, cell = val(k + "_cell"), same = [];
+    (info ? info.peaks : []).forEach(function (o) { if (o.key !== k && cell && val(o.key + "_cell") === cell) same.push(o.label); });
+    var note = same.length ? "SAME FORECAST AREA AS " + same.join(" / ") + ": CONDITIONS, WIND + LEVELS MATCH; ONLY TEMPERATURE ADJUSTED FOR ELEVATION"
+                           : "OWN FORECAST AREA; TEMPERATURE ADJUSTED TO THIS SUMMIT'S ELEVATION";
+    return '<section class="card wide peakhead"><h2>' + esc(pk.name.toUpperCase()) + '<span class="el">' + commas(pk.elevation) + ' FT</span></h2>' +
+           '<div class="note">FORECAST POINT ' + Number(val(k + "_lat")).toFixed(4) + ", " + Number(val(k + "_lon")).toFixed(4) +
+           " · MODEL GRID CELL USED " + esc(String(cell || "--").replace(",", ", ")) + '</div><div class="note ' + (same.length ? "same" : "") + '">' + esc(note) + "</div></section>";
+  }
+  function factsCard() {
+    if (!info) return "";
+    var bits = [info.status, info.open, info.night].filter(Boolean).map(function (s) { return "<span>" + esc(s) + "</span>"; }).join("");
+    var link = info.report ? '<a class="btn" href="' + esc(info.report.url) + '" target="_blank" rel="noopener">' + esc(info.report.label) + " ↗</a>" : "";
+    return '<section class="card wide resort"><h2>RESORT-WIDE · SAME FOR EVERY PEAK</h2><div class="facts">' + bits + "</div>" + link + "</section>";
+  }
+  function render() {
+    var el = document.getElementById("details");
+    var u = val("updated"), age = u ? Date.now() / 1000 - u : null;
+    var up = document.getElementById("updated");
+    up.textContent = u ? (age > STALE_S ? "OLD DATA · updated " + ago(u) : "Updated " + ago(u)) : "No data yet";
+    up.className = "updated" + (age > STALE_S ? " old" : "");
+    if (!raw || !info || !fields.length) { el.innerHTML = '<section class="card wide"><div class="src">Loading the details…</div></section>'; return; }
+    var html = "";
+    if (tab === "resort") {
+      html += factsCard() + keptNote();
+      fields.forEach(function (s) { if (s.scope === "resort") html += card(s, (s.widget && W[s.widget] ? W[s.widget]() : "") + rows(s, {})); });
+      html += linksCard();
+    } else {
+      var pk = info.peaks.filter(function (p) { return p.key === tab; })[0] || info.peaks[0];
+      html += peakHeader(pk);
+      fields.forEach(function (s) {
+        if (s.scope !== "peak") return;
+        html += card(s, (s.widget && W[s.widget] ? W[s.widget](pk) : "") + rows(s, pk), s.widget === "models7" ? "wide" : "");
+      });
+    }
+    el.innerHTML = html;
+  }
+
+  // ---------- tabs ----------
+  var tabsEl = document.getElementById("tabs");
+  TABS.forEach(function (t) {
+    var b = document.createElement("button");
+    b.role = "tab"; b.textContent = t[1]; b.dataset.key = t[0];
+    b.onclick = function () { setTab(t[0]); };
+    tabsEl.appendChild(b);
+  });
+  function setTab(k) {
+    tab = k; window.mirrorTab = k;
+    try { localStorage.setItem("mirrorTab", k); } catch (e) {}
+    [].forEach.call(tabsEl.children, function (b) { b.setAttribute("aria-selected", b.dataset.key === k ? "true" : "false"); });
+    render();
+  }
+
+  // ---------- data ----------
+  var pending = "";
+  window.mirrorTakeData = function () { var t = pending; pending = ""; return t; };
+  var pendingStatus = "";
+  window.mirrorTakeStatus = function () { var t = pendingStatus; pendingStatus = ""; return t; };
+  window.mirrorInfo = function (o) { info = o; render(); };
+  function fetchData() {
+    return fetch(DATA_URL + "?t=" + Date.now(), { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.text() : ""; })
+      .then(function (t) { if (t.indexOf("updated=") >= 0) { pending = t; raw = t; D = parse(t); render(); } })
+      .catch(function () {});
+  }
+  function fetchStatus() {
+    return fetch("data/status.txt?t=" + Date.now(), { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.text() : ""; })
+      .then(function (t) { if (t.indexOf("status_generated=") >= 0) { S = parse(t); pendingStatus = t; render(); } })
+      .catch(function () {});
+  }
+  fetchStatus();
+  setInterval(fetchStatus, 10 * 60 * 1000);
+  setInterval(fetchData, REFRESH_MS);
+  setInterval(render, 60 * 1000);          // "updated X min ago" ticks on
+  fetch("fields.json?b=" + BUILD).then(function (r) { return r.json(); }).then(function (f) { fields = f; render(); }).catch(function () {});
+
+  // ---------- "A YEAR AT ..." ----------
+  // The button (or the link ?tour, which starts it on its own) asks the scene to play a year
+  // (mountain_tour.lua); the scene says when it's playing. Tapping the scene goes back to live.
+  var tourBtn = document.getElementById("tourBtn"), tourNote = document.getElementById("tourNote");
+  var sceneEl = document.querySelector(".scene"), touring = false;
+  var TOUR_LABEL = tourBtn.textContent;
+  window.mirrorTourCmd = /[?&]tour(=|&|$)/.test(location.search) ? "start" : "";
+  window.mirrorTourState = function (on) {
+    touring = !!on;
+    tourBtn.textContent = touring ? "■ BACK TO LIVE" : TOUR_LABEL;
+    tourBtn.classList.toggle("on", touring);
+    sceneEl.classList.toggle("touring", touring);
+    tourNote.hidden = !touring;
+  };
+  tourBtn.onclick = function () { window.mirrorTourCmd = touring ? "stop" : "start"; };
+  sceneEl.addEventListener("click", function () { if (touring) window.mirrorTourCmd = "stop"; });
+
+  // FPS readout with ?fps=1
+  var fpsEl = document.getElementById("fps");
+  if (/[?&]fps=1/.test(location.search)) fpsEl.hidden = false;
+  window.mirrorFps = function (n) { fpsEl.textContent = n + " FPS"; window.mirrorLastFps = n; };
+
+  // A new build gets a new .love name; drop the old cached packages so they don't pile up.
+  var clearOld = Promise.resolve();
+  try {
+    if (localStorage.getItem("mirrorBuild") !== BUILD) {
+      clearOld = new Promise(function (ok) {
+        var req = indexedDB.deleteDatabase("EM_PRELOAD_CACHE");
+        req.onsuccess = req.onerror = req.onblocked = function () { ok(); };
+      });
+      localStorage.setItem("mirrorBuild", BUILD);
+    }
+  } catch (e) {}
+
+  setTab(tab);
+  var firstData = Promise.race([fetchData(), new Promise(function (ok) { setTimeout(ok, FIRST_WAIT_MS); })]);
+  Promise.all([firstData, clearOld]).then(function () {
+    var s = document.createElement("script");
+    s.src = "player.js?g=" + encodeURIComponent(LOVE);
+    document.body.appendChild(s);
+  });
+})();
+</script>
+</body>
+</html>
